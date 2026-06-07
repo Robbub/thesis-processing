@@ -1,0 +1,32 @@
+{
+    "id": "inspection_001",
+    "name": "crack near sink",
+    "original_url": "http://somewhere.com"
+    "mask_url": "http://somewhereelse.com"
+    "crack_data": {
+        "bounding_boxes": [
+            {
+                "id": 1,
+                "x": 20,
+                "y": 30,
+                "width": 25,
+                "height": 23,
+            }
+        ],
+        "contours": [
+            # SVG Path formatting definitions (M = Move To, L = Line To) scaled 0-100%
+            {
+                "id": 1,
+                "path_data": "M 20 34 L 22 32 L 25 35 L 30 31 L 35 38"
+            }
+        ]
+        "data": [
+            {
+                "id": 1,
+                "orientation": "either degree or direction",
+                "length": "1.3mm",
+                "width": ".02mm"
+            }
+        ]
+    }
+}
