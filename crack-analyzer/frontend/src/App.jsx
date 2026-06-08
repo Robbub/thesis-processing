@@ -133,12 +133,14 @@ export default function App() {
           {activeInspection ? (
             <>
               <InteractiveWindow
+                key={`alpha-${activeInspection.id}`}
                 title="Viewport Alpha"
                 inspection={activeInspection}
                 onCrackSelect={setActiveCrack}
               />
               {isDualWindow && (
                 <InteractiveWindow
+                  key={`beta-${activeInspection.id}`}
                   title="Viewport Beta"
                   inspection={activeInspection}
                   onCrackSelect={setActiveCrack}
@@ -180,7 +182,9 @@ export default function App() {
                 </div>
               </div>
             ) : (
-              <p></p>
+              <div style={{ textAlign: 'center', color: '#64748b', fontSize: '0.85rem', marginTop: '20px' }}>
+                Upload an image to compute structural statistics.
+              </div>
             )}
           </div>
         </aside>
@@ -310,7 +314,7 @@ function InteractiveWindow({ title, inspection, onCrackSelect }) {
             src={inspection.original_url}
             alt="Original asset"
             draggable="false"
-            style={{ display: 'block', maxWidth: '100%', height: 'auto', maxHeight: '70vh', pointerEvents: 'none', opacity: maskMode === "mask" ? 0.0 : (maskMode === "overlay" ? 0.4 : 1.0), transition: 'opacity 0.15 ease' }}
+            style={{ display: 'block', maxWidth: '100%', height: 'auto', maxHeight: '70vh', pointerEvents: 'none', opacity: maskMode === "mask" ? 0.0 : (maskMode === "overlay" ? 0.4 : 1.0), transition: 'opacity 0.15s ease' }}
           />
           {(maskMode === "overlay" || maskMode === "mask") && (
             <img
@@ -378,7 +382,7 @@ function ToggleButton({ active, onClick, text }) {
         fontSize: '0.7rem',
         cursor: 'pointer',
         display: 'flex',
-        lignItems: 'center',
+        alignItems: 'center',
         gap: '4px'
       }}
     >
