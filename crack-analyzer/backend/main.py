@@ -1,4 +1,5 @@
 import time
+from typing import Optional
 from fastapi import FastAPI, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -26,7 +27,7 @@ async def upload_inspection(
     request: Request = None
 ):
     unique_id = f"insp_{int(time.time())}"
-    
+
     if file is not None:
         return InspectionRepository.save_new_inspection(file, unique_id)
     else:
