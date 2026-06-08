@@ -7,9 +7,11 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [inspections, setInspections] = useState(INITIAL_DIRECTORY);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [selectedOriginalIdx, setSelectedOriginalIdx] = useState(0);
   const [isDualWindow, setIsDualWindow] = useState(false);
   const [activeCrack, setActiveCrack] = useState(null);
-  const activeInspection = inspections[selectedIdx] || null;
+  const activeSession = inspections[selectedIdx] || null;
+  const activeInspection = activeSession?.originals?.[selectedOriginalIdx] || null;
 
   const computeGlobalStats = () => {
     if (!activeInspection || !activeInspection.crack_data?.bounding_boxes) {
@@ -68,6 +70,31 @@ export default function App() {
     }
   };
 
+  const handleAnalyzedSession = async (session) => {
+    if (!session || loading) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${import.meta.env.VITE_APP_URL}/api/analyze-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(session)
+      });
+
+      const updateSessionPayload = await res.json();
+
+      setInspections((prevList) =>
+        prevList.map((item) =>
+          item.sessionId === session.sessionId ? updateSessionPayload : item
+        )
+      );
+    } catch (err) {
+      console.error("Error running session processing pipeline script", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     const fetchDirectoryHistory = async () => {
       try {
@@ -112,20 +139,65 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <aside style={{ width: '260px', borderRight: '1px solid #334155', backgroundColor: '#0f172a', padding: '15px', overflow: 'auto' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {inspections.map((item, idx) => (
-              <button
-                key={item.id}
-                onClick={() => setSelectedIdx(idx)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '10px', width: '100%', padding: '10px', borderRadius: '6px', border: 'none', textAlign: 'left', cursor: 'pointer',
-                  backgroundColor: selectedIdx === idx ? '#2563eb' : '#1e293b',
-                  color: '#fff', transition: 'background-color 0.2s'
-                }}
-              >
-                <Folder size={16} style={{ color: selectedIdx === idx ? '#fff' : '#94a3b8' }} />
-                <span style={{ fontSize: '0.85rem', fontWeight: '500' }}>{item.name}</span>
-              </button>
-            ))}
+            {inspections.map((session, sIdx) => {
+              const isSessionAnalyzed = session.is_processed_session || session.originals?.some(o => o.mask_url);
+
+              return (
+                <div key={session.sessionId || sIdx} style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
+
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', color: '#64748b', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                      <Folder size={14} />
+                      <span>SESSION: {session.sessionId}</span>
+                    </div>
+                    <span
+                      title={isSessionAnalyzed ? "Processed" : "Pending Analysis"}
+                      style={{ fontSize: '0.6rem', color: isSessionAnalyzed ? '#10b981' : '#f59e0b' }}
+                    >
+                      {isSessionAnalyzed ? '● PROCESSED' : '○ PENDING'}
+                    </span>
+                  </div>
+
+                  {!isSessionAnalyzed && (
+                    <button
+                      onClick={() => handleAnalyzedSession(session)}
+                      disabled={loading}
+                      style={{
+                        backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px',
+                        padding: '5px 8px', fontSize: '0.7rem', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer',
+                        transition: 'background-color 0.2s', width: '100%', marginBottom: '4px'
+                      }}
+                    >
+                      {loading ? 'Processing Workspace...' : 'Run CV Analysis'}
+                    </button>
+                  )}
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '12px', borderLeft: '1px solid #1e293b' }}>
+                    {session.originals?.map((orig, oIdx) => {
+                      const isSelected = selectedIdx === sIdx && selectedOriginalIdx === oIdx;
+                      return (
+                        <button
+                          key={orig.id}
+                          onClick={() => {
+                            setSelectedIdx(sIdx);
+                            setSelectedOriginalIdx(oIdx);
+                          }}
+                          style={{
+                            width: '100%', padding: '8px 10px', borderRadius: '6px', border: 'none', textAlign: 'left', cursor: 'pointer',
+                            backgroundColor: isSelected ? '#2563eb' : '#1e293b',
+                            color: '#fff', transition: 'background-color 0.15s', fontSize: '0.8rem'
+                          }}
+                        >
+                          <div style={{ fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {orig.name || `Image #${orig.id.slice(0, 5)}`}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </aside>
 
@@ -133,16 +205,26 @@ export default function App() {
           {activeInspection ? (
             <>
               <InteractiveWindow
-                key={`alpha-${activeInspection.id}`}
+                key={`alpha-${activeInspection?.id}`}
                 title="Viewport Alpha"
-                inspection={activeInspection}
+                inspection={{
+                  id: activeInspection.id,
+                  original_url: activeInspection.url,
+                  mask_url: activeInspection.mask_url,
+                  crack_data: activeInspection.crack_data || { bounding_boxes: [], contours: [] }
+                }}
                 onCrackSelect={setActiveCrack}
               />
               {isDualWindow && (
                 <InteractiveWindow
-                  key={`beta-${activeInspection.id}`}
+                  key={`beta-${activeInspection?.id}`}
                   title="Viewport Beta"
-                  inspection={activeInspection}
+                  inspection={{
+                    id: activeInspection.id,
+                    original_url: activeInspection.url,
+                    mask_url: activeInspection.mask_url,
+                    crack_data: activeInspection.crack_data || { bounding_boxes: [], contours: [] }
+                  }}
                   onCrackSelect={setActiveCrack}
                 />
               )}

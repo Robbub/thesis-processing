@@ -1,10 +1,13 @@
 import os
 import json
 import shutil
+import requests
 import cv2
 import numpy as np
 from scipy import stats
 from fastapi import UploadFile
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 STORAGE_MODE = os.environ.get("STORAGE_MODE", "LOCAL")
 LOCAL_STORAGE_DIR = "storage"
@@ -18,6 +21,11 @@ else:
 
 PIXEL_TO_MM = 0.1
 GAP_THRESHOLD_PIXELS = 5
+
+if STORAGE_MODE == "CLOUD":
+    if not firebase_admin._apps:
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred)
 
 class CrackUnionFind:
     def __init__(self, size):
@@ -44,8 +52,12 @@ def calculate_min_edge_distance(contour_a, contour_b):
 class InspectionRepository:
 
     @staticmethod
-    def process_and_analyze_crack(orig_path, mask_path):
-        img = cv2.imread(orig_path, cv2.IMREAD_GRAYSCALE)
+    def process_and_analyze_crack(orig_path=None, mask_path=None, img_matrix=None, resized_matrix=None):
+        if img_matrix is not None:
+            img = img_matrix
+        else:
+            img = cv2.imread(orig_path, cv2.IMREAD_GRAYSCALE)
+
         if img is None:
             return {"bounding_boxes": [], "contours": []}
         
@@ -71,10 +83,14 @@ class InspectionRepository:
         web_mask[final_full_mask == 255] = [0, 0, 255, 255]
         web_mask[final_full_mask == 0] = [0, 0, 0, 0]
 
-        cv2.imwrite(mask_path, web_mask)
+        if mask_path is not None:
+            cv2.imwrite(mask_path, web_mask)
 
         target_w, target_h = 416, 416
-        resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
+        if resized_matrix is not None:
+            resized_img = resized_matrix
+        else:
+            resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
         smoothed_small = cv2.bilateralFilter(resized_img, d=7, sigmaColor=50, sigmaSpace=50)
         whitehot_crack = cv2.adaptiveThreshold(
             smoothed_small, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
@@ -210,9 +226,33 @@ class InspectionRepository:
             "bounding_boxes": final_boxes,
             "contours": final_contours
         }
-
-
     
+    @staticmethod
+    def process_cloud_session_images(original_id: str, original_url: str, resized_url: str) -> dict:
+        orig_response = requests.get(original_url)
+        orig_bytes = np.asarray(bytearray(orig_response.content), dtype=np.uint8)
+        img_matrix = cv2.imdecode(orig_bytes, cv2.IMREAD_GRAYSCALE)
+
+        resized_response = requests.get(resized_url)
+        resized_bytes = np.asarray(bytearray(resized_response.content), dtype=np.uint8)
+        resized_matrix = cv2.imdecode(resized_bytes, cv2.IMREAD_GRAYSCALE)
+
+        folder_path = os.path.join(LOCAL_STORAGE_DIR, original_id)
+        os.makedirs(folder_path, exist_ok=True)
+        mask_filename = f"mask_{original_id}.png"
+        local_mask_path = os.path.join(folder_path, mask_filename)
+
+        crack_data = InspectionRepository.process_and_analyze_crack(
+            mask_path=local_mask_path,
+            img_matrix=img_matrix,
+            resized_matrix=resized_matrix
+        )
+
+        return {
+            "mask_url": f"{HOST_URL}/{original_id}/{mask_filename}",
+            "crack_data": crack_data
+        }
+
     @staticmethod
     def save_new_inspection(file: UploadFile, file_id: str) -> dict:
         if STORAGE_MODE == "LOCAL":
@@ -268,5 +308,47 @@ class InspectionRepository:
             return inspections_list
     
         elif STORAGE_MODE == "CLOUD":
-            #TODO: fetch
-            pass
+            db = firestore.client()
+            docs = db.collection("images").stream()
+
+            sessions_map = {}
+            originals_map = {}
+            resized_list = []
+
+            for doc in docs:
+                data = doc.to_dict()
+                data["id"] = doc.id
+
+                s_id = data.get("sessionId")
+                img_type = data.get("type")
+
+                if not s_id:
+                    continue
+
+                if s_id not in sessions_map:
+                    sessions_map[s_id] = {
+                        "sessionId": s_id,
+                        "originals": []
+                    }
+
+                if img_type == "original":
+                    data["resized_variants"] = []
+                    data["url"] = data.get("storageUrl") or data.get("url")
+
+                    if "crack_data" not in data:
+                        data["crack_data"] = {"bounding_boxes" : [], "contours" : []}
+                    data["mask_url"] = None
+                    originals_map[doc.id] = data
+                    sessions_map[s_id]["originals"].append(data)
+                elif img_type == "resized":
+                    data["url"] = data.get("storageUrl") or data.get("url")
+                    resized_list.append(data)
+                elif img_type == "mask":
+                    pass
+
+            for r_img in resized_list:
+                parent_id = r_img.get("original_id")
+                if parent_id in originals_map:
+                    originals_map[parent_id]["resized_variants"].append(r_img)
+            
+            return list(sessions_map.values())
