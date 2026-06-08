@@ -6,10 +6,16 @@ import numpy as np
 from scipy import stats
 from fastapi import UploadFile
 
-STORAGE_MODE = "LOCAL"
+IS_ON_RENDER = os.environ.get("RENDER") == "true"
+STORAGE_MODE = os.environ.get("STORAGE_MODE", "LOCAL")
 LOCAL_STORAGE_DIR = "storage"
 os.makedirs(LOCAL_STORAGE_DIR, exist_ok=True)
-HOST_URL = "http://localhost:8000/static"
+if IS_ON_RENDER:
+    RENDER_URL = os.environ.get("RENDER_EXTERNAL_URL")
+    HOST_URL = f"{RENDER_URL}/static"
+else:
+    HOST_URL = "http://localhost:8000/static"
+
 
 PIXEL_TO_MM = 0.1
 GAP_THRESHOLD_PIXELS = 5
