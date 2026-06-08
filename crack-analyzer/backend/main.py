@@ -1,6 +1,6 @@
 import time
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Request, Body
+from fastapi import FastAPI, File, UploadFile, Request, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from storage import InspectionRepository
@@ -22,20 +22,12 @@ async def list_inspections():
     return InspectionRepository.get_all_inspections()
 
 @app.post("/api/upload")
-async def upload_inspection(
-    file: Optional[UploadFile] = File(None),
-    request: Request = None
-):
+async def upload_inspection(file: Optional[UploadFile] = File(None)):
+    if file is None:
+        return HTTPException(status_code=400, detail="No local file stream provided for processing.")
+    
     unique_id = f"insp_{int(time.time())}"
-
-    if file is not None:
-        return InspectionRepository.save_new_inspection(file, unique_id)
-    else:
-        body = await request.json()
-        image_url = body.get("image_url")
-        filename = body.get("filename", "cloud_image.jpg")
-
-        return InspectionRepository.save_cloud_inspenction(image_url, filename, unique_id)
+    return InspectionRepository.save_new_inspection(file, unique_id)
     
 @app.post("/api/analyze-session")
 async def analyze_session(payload: dict = Body(...)):
@@ -55,7 +47,12 @@ async def analyze_session(payload: dict = Body(...)):
         if not resized_variants:
             continue
 
-        resized_url = resized_variants[0].get("url") or resized_variants[0].get("storageUrl")
+        if isinstance(resized_variants, list):
+            variant_target = resized_variants[0]
+        else:
+            variant_target = resized_variants
+
+        resized_url = variant_target.get("url") or variant_target.get("storageUrl")
 
         try:
             result = InspectionRepository.process_cloud_session_images(
