@@ -1,6 +1,6 @@
 import time
 from typing import Optional
-from fastapi import FastAPI, File, UploadFile, Request
+from fastapi import FastAPI, File, UploadFile, Request, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from storage import InspectionRepository
