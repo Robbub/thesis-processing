@@ -218,6 +218,7 @@ class InspectionRepository:
         if STORAGE_MODE == "LOCAL":
             folder_path = os.path.join(LOCAL_STORAGE_DIR, file_id)
             os.makedirs(folder_path, exist_ok=True)
+            os.chmod(folder_path, 0o755)
 
             cleaned_base_name, incoming_extension = os.path.splitext(file.filename)
             orig_filename = f"original_{cleaned_base_name}{incoming_extension}"
