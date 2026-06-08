@@ -1,2 +1,66 @@
+# Virtual Environments
+venv/
+env/
+ENV/
+.venv
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Sensitive files
 serviceAccountKey.json
-**/serviceAccountKey.json
+*.pem
+*.key
+*.p12
+credentials.json
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node (Frontend)
+node_modules/
+npm-debug.log
+yarn-error.log
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+storage/
+*.jpg
+*.png
+*.jpeg
+example json.txt
