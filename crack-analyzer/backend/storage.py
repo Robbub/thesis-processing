@@ -317,7 +317,7 @@ class InspectionRepository:
 
             for doc in docs:
                 data = doc.to_dict()
-                data["id"] = doc.id
+                data["id"] = data.get("original_id") or doc.id
 
                 s_id = data.get("sessionId")
                 img_type = data.get("type")
@@ -338,8 +338,9 @@ class InspectionRepository:
                     if "crack_data" not in data:
                         data["crack_data"] = {"bounding_boxes" : [], "contours" : []}
                     data["mask_url"] = None
-                    custom_orig_id = data.get("original_id") or doc.id
-                    originals_map[custom_orig_id] = data
+                    custom_key = data.get("original_id")
+                    if custom_key:
+                        originals_map[custom_key] = data
                     sessions_map[s_id]["originals"].append(data)
                 elif img_type == "resized":
                     data["url"] = data.get("storageUrl") or data.get("url")
