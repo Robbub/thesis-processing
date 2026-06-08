@@ -338,7 +338,8 @@ class InspectionRepository:
                     if "crack_data" not in data:
                         data["crack_data"] = {"bounding_boxes" : [], "contours" : []}
                     data["mask_url"] = None
-                    originals_map[doc.id] = data
+                    custom_orig_id = data.get("original_id") or doc.id
+                    originals_map[custom_orig_id] = data
                     sessions_map[s_id]["originals"].append(data)
                 elif img_type == "resized":
                     data["url"] = data.get("storageUrl") or data.get("url")
