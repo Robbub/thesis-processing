@@ -1,3 +1,4 @@
+import base64
 import os
 import json
 import shutil
@@ -202,8 +203,8 @@ class InspectionRepository:
         external_api_url = MASK_API_URL
         generated_mask_url = None
         crack_data = {"bounding_boxes": [], "contours": []}
+        mask_bytes = None
 
-        # 1. 🌐 Setup Payload with Explicit JSON Headers
         payload = {
             "original_id": str(original_id),
             "original_url": str(original_url),
@@ -224,13 +225,45 @@ class InspectionRepository:
             print(f"AI Service Raw Text Response: {api_response.text}")
 
             if api_response.status_code == 200:
-                response_json = api_response.json()
-                generated_mask_url = response_json.get("maskS3Url")
-                
-                if not generated_mask_url:
-                    generated_mask_url = response_json.get("mask_url") or response_json.get("url")
-                    
-                print(f"Successfully captured mask URL: {generated_mask_url}")
+                response_type = api_response.headers.get("Content-Type", "")
+
+                if "application/json" in response_type:
+                    response_json = api_response.json()
+                    generated_mask_url = response_json.get("maskS3Url")
+
+                    if not generated_mask_url:
+                        generated_mask_url = response_json.get("mask_url") or response_json.get("url")
+
+                    if not generated_mask_url:
+                        mask_b64 = response_json.get("mask_b64") or response_json.get("mask_image") or response_json.get("mask")
+                        if isinstance(mask_b64, str):
+                            try:
+                                mask_bytes = base64.b64decode(mask_b64)
+                            except Exception as e:
+                                print(f"Mask base64 decode error: {e}")
+
+                elif "image" in response_type:
+                    mask_bytes = api_response.content
+                else:
+                    try:
+                        response_json = api_response.json()
+                        generated_mask_url = response_json.get("maskS3Url") or response_json.get("mask_url") or response_json.get("url")
+                        if not generated_mask_url:
+                            mask_b64 = response_json.get("mask_b64") or response_json.get("mask_image") or response_json.get("mask")
+                            if isinstance(mask_b64, str):
+                                try:
+                                    mask_bytes = base64.b64decode(mask_b64)
+                                except Exception as e:
+                                    print(f"Mask base64 decode error: {e}")
+                    except Exception:
+                        print("Unable to parse damage-mask-service response.")
+
+                if generated_mask_url:
+                    print(f"Successfully captured mask URL: {generated_mask_url}")
+                elif mask_bytes is not None:
+                    print("Successfully captured mask bytes from damage-mask-service response.")
+                else:
+                    print("No usable mask URL or bytes were returned by damage-mask-service.")
             else:
                 print(f"API Error Response Body: {api_response.text}")
                 
@@ -239,20 +272,36 @@ class InspectionRepository:
         except Exception as e:
             print(f"API Connection Error: {e}")
 
-        if generated_mask_url:
+        if generated_mask_url and mask_bytes is None:
             try:
                 mask_response = requests.get(generated_mask_url, timeout=20)
                 mask_response.raise_for_status()
-                
-                mask_bytes = np.asarray(bytearray(mask_response.content), dtype=np.uint8)
-                mask_matrix = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
-                
-                crack_data = InspectionRepository.process_and_analyze_crack(mask_matrix=mask_matrix)
-                print("Successfully processed CV calculations on downloaded AI mask.")
+                mask_bytes = mask_response.content
             except Exception as e:
-                print(f"Failed to calculate parameters on mask download: {e}")
+                print(f"Failed to fetch generated mask URL: {e}")
+
+        if mask_bytes is not None:
+            try:
+                mask_matrix = cv2.imdecode(np.asarray(bytearray(mask_bytes), dtype=np.uint8), cv2.IMREAD_GRAYSCALE)
+                if mask_matrix is not None and mask_matrix.size > 0:
+                    crack_data = InspectionRepository.process_and_analyze_crack(mask_matrix=mask_matrix)
+                    print("Successfully processed CV calculations on generated AI mask.")
+
+                    mask_filename = f"mask_{original_id}.png"
+                    mask_folder = os.path.join(LOCAL_STORAGE_DIR, str(original_id))
+                    os.makedirs(mask_folder, exist_ok=True)
+                    mask_file_path = os.path.join(mask_folder, mask_filename)
+
+                    with open(mask_file_path, "wb") as f:
+                        f.write(mask_bytes)
+
+                    generated_mask_url = f"{HOST_URL}/{original_id}/{mask_filename}"
+                else:
+                    print("Mask decode produced empty matrix.")
+            except Exception as e:
+                print(f"Failed to calculate parameters on generated mask bytes: {e}")
         else:
-            print("Proceeding with empty assessment. No valid mask URL was captured from the API.")
+            print("Proceeding with empty assessment. No valid mask bytes or URL was captured from the API.")
 
         return {
             "mask_url": generated_mask_url,
