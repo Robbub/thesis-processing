@@ -52,57 +52,23 @@ def calculate_min_edge_distance(contour_a, contour_b):
 class InspectionRepository:
 
     @staticmethod
-    def process_and_analyze_crack(orig_path=None, mask_path=None, img_matrix=None, resized_matrix=None):
-        if img_matrix is not None:
-            img = img_matrix
-        else:
-            img = cv2.imread(orig_path, cv2.IMREAD_GRAYSCALE)
+    def process_and_analyze_crack(mask_matrix=None):
 
-        if img is None:
+        if mask_matrix is None:
             return {"bounding_boxes": [], "contours": []}
-        
-        smoothed_full = cv2.bilateralFilter(img, d=9, sigmaColor=75, sigmaSpace=75)
-        whitehot_crack_full = cv2.adaptiveThreshold(
-            smoothed_full, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, 31, 14
-        )
-
-        kernel_full = cv2.getStructuringElement(cv2.MORPH_RECT, (6, 6))
-        cleaned_full = cv2.morphologyEx(whitehot_crack_full, cv2.MORPH_OPEN, kernel_full)
-
-        num_labels_f, labels_f, stats_f, _ = cv2.connectedComponentsWithStats(
-            cleaned_full, connectivity=8, ltype=cv2.CV_32S
-        )
-        final_full_mask = np.zeros_like(cleaned_full)
-        for i in range(1, num_labels_f):
-            if stats_f[i, cv2.CC_STAT_AREA] >= 150:
-                final_full_mask[labels_f == i] = 255
-
-        h_full, w_full = whitehot_crack_full.shape
-        web_mask = np.zeros((h_full, w_full, 4), dtype=np.uint8)
-        web_mask[final_full_mask == 255] = [0, 0, 255, 255]
-        web_mask[final_full_mask == 0] = [0, 0, 0, 0]
-
-        if mask_path is not None:
-            cv2.imwrite(mask_path, web_mask)
 
         target_w, target_h = 416, 416
-        if resized_matrix is not None:
-            resized_img = resized_matrix
+        if mask_matrix.shape[:2] != (target_h, target_w):
+            processed_mask = cv2.resize(mask_matrix, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
         else:
-            resized_img = cv2.resize(img, (target_w, target_h), interpolation=cv2.INTER_AREA)
-        smoothed_small = cv2.bilateralFilter(resized_img, d=7, sigmaColor=50, sigmaSpace=50)
-        whitehot_crack = cv2.adaptiveThreshold(
-            smoothed_small, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY_INV, 31, 14
-        )
+            processed_mask = mask_matrix
 
-        kernel_small = cv2.getStructuringElement(cv2.MORPH_RECT, (4, 4))
-        cleaned_mask = cv2.morphologyEx(whitehot_crack, cv2.MORPH_OPEN, kernel_small)
+        _, cleaned_mask = cv2.threshold(processed_mask, 127, 255, cv2.THRESH_BINARY)
 
         num_labels, labels, stats_map, centroids = cv2.connectedComponentsWithStats(
             cleaned_mask, connectivity=8, ltype=cv2.CV_32S
         )
+        
         final_cleaned_mask = np.zeros_like(cleaned_mask)
         for i in range(1, num_labels):
             if stats_map[i, cv2.CC_STAT_AREA] >= 75:
@@ -229,27 +195,39 @@ class InspectionRepository:
     
     @staticmethod
     def process_cloud_session_images(original_id: str, original_url: str, resized_url: str) -> dict:
-        orig_response = requests.get(original_url)
-        orig_bytes = np.asarray(bytearray(orig_response.content), dtype=np.uint8)
-        img_matrix = cv2.imdecode(orig_bytes, cv2.IMREAD_GRAYSCALE)
+        generated_mask_url = None
+        external_api_url = "https://damage-mask-service.onrender.com/process-all"
+        crack_data = {"bounding_boxes": [], "contours": []}
 
-        resized_response = requests.get(resized_url)
-        resized_bytes = np.asarray(bytearray(resized_response.content), dtype=np.uint8)
-        resized_matrix = cv2.imdecode(resized_bytes, cv2.IMREAD_GRAYSCALE)
+        try:
+            payload = {
+                "original_id": original_id,
+                "original_url": original_url,
+                "resized_url": resized_url
+            }
+            api_response = requests.post(external_api_url, json=payload, timeout=45)
 
-        folder_path = os.path.join(LOCAL_STORAGE_DIR, original_id)
-        os.makedirs(folder_path, exist_ok=True)
-        mask_filename = f"mask_{original_id}.png"
-        local_mask_path = os.path.join(folder_path, mask_filename)
+            if api_response.status_code == 200:
+                generated_mask_url = api_response.json().get("maskS3Url")
+            else:
+                print(f"AI service returned an unexpected status code: {api_response.status_code}.")
 
-        crack_data = InspectionRepository.process_and_analyze_crack(
-            mask_path=local_mask_path,
-            img_matrix=img_matrix,
-            resized_matrix=resized_matrix
-        )
+        except Exception as e:
+            print(f"AI Mask Generation API failed: {e}")
+
+        if generated_mask_url:
+            try:
+                mask_response = requests.get(generated_mask_url, timeout=15)
+                mask_response.raise_for_status()
+
+                mask_bytes = np.asarray(bytearray(mask_response.content), dtype=np.uint8)
+                mask_matrix = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
+                crack_data = InspectionRepository.process_and_analyze_crack(mask_matrix=mask_matrix)
+            except Exception as e:
+                print(f"Failed to fetch or parse generated cloud mask asset: {e}")
 
         return {
-            "mask_url": f"{HOST_URL}/{original_id}/{mask_filename}",
+            "mask_url": generated_mask_url,
             "crack_data": crack_data
         }
 
@@ -337,16 +315,16 @@ class InspectionRepository:
 
                     if "crack_data" not in data:
                         data["crack_data"] = {"bounding_boxes" : [], "contours" : []}
-                    data["mask_url"] = None
+                    data["mask_url"] = data.get("maskS3Url")
+                    
                     custom_key = data.get("original_id")
                     if custom_key:
                         originals_map[custom_key] = data
                     sessions_map[s_id]["originals"].append(data)
                 elif img_type == "resized":
                     data["url"] = data.get("storageUrl") or data.get("url")
+                    data["mask_url"] = data.get("maskS3Url") or None
                     resized_list.append(data)
-                elif img_type == "mask":
-                    pass
 
             for r_img in resized_list:
                 parent_id = r_img.get("original_id")
