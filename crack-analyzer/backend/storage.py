@@ -68,7 +68,7 @@ class InspectionRepository:
         num_labels, labels, stats_map, centroids = cv2.connectedComponentsWithStats(
             cleaned_mask, connectivity=8, ltype=cv2.CV_32S
         )
-        
+
         final_cleaned_mask = np.zeros_like(cleaned_mask)
         for i in range(1, num_labels):
             if stats_map[i, cv2.CC_STAT_AREA] >= 75:
@@ -195,41 +195,66 @@ class InspectionRepository:
     
     @staticmethod
     def process_cloud_session_images(original_id: str, original_url: str, resized_url: str) -> dict:
+        external_api_url = "https://onrender.com"
         generated_mask_url = None
-        external_api_url = "https://damage-mask-service.onrender.com/process-all"
         crack_data = {"bounding_boxes": [], "contours": []}
 
+        # 1. 🌐 Setup Payload with Explicit JSON Headers
+        payload = {
+            "original_id": str(original_id),
+            "original_url": str(original_url),
+            "resized_url": str(resized_url)
+        }
+        
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        }
+
+        print(f"Sending payload to damage-mask-service: {json.dumps(payload)}")
+
         try:
-            payload = {
-                "original_id": original_id,
-                "original_url": original_url,
-                "resized_url": resized_url
-            }
-            api_response = requests.post(external_api_url, json=payload, timeout=45)
+            api_response = requests.post(external_api_url, json=payload, headers=headers, timeout=60)
+            
+            print(f"AI Service Status Code: {api_response.status_code}")
+            print(f"AI Service Raw Text Response: {api_response.text}")
 
             if api_response.status_code == 200:
-                generated_mask_url = api_response.json().get("maskS3Url")
+                response_json = api_response.json()
+                generated_mask_url = response_json.get("maskS3Url")
+                
+                if not generated_mask_url:
+                    generated_mask_url = response_json.get("mask_url") or response_json.get("url")
+                    
+                print(f"Successfully captured mask URL: {generated_mask_url}")
             else:
-                print(f"AI service returned an unexpected status code: {api_response.status_code}.")
-
+                print(f"API Error Response Body: {api_response.text}")
+                
+        except requests.exceptions.Timeout:
+            print("TIMEOUT: The damage-mask-service took too long to compile the mask.")
         except Exception as e:
-            print(f"AI Mask Generation API failed: {e}")
+            print(f"API Connection Error: {e}")
 
         if generated_mask_url:
             try:
-                mask_response = requests.get(generated_mask_url, timeout=15)
+                mask_response = requests.get(generated_mask_url, timeout=20)
                 mask_response.raise_for_status()
-
+                
                 mask_bytes = np.asarray(bytearray(mask_response.content), dtype=np.uint8)
                 mask_matrix = cv2.imdecode(mask_bytes, cv2.IMREAD_GRAYSCALE)
+                
                 crack_data = InspectionRepository.process_and_analyze_crack(mask_matrix=mask_matrix)
+                print("Successfully processed CV calculations on downloaded AI mask.")
             except Exception as e:
-                print(f"Failed to fetch or parse generated cloud mask asset: {e}")
+                print(f"Failed to calculate parameters on mask download: {e}")
+        else:
+            print("Proceeding with empty assessment. No valid mask URL was captured from the API.")
 
         return {
             "mask_url": generated_mask_url,
             "crack_data": crack_data
         }
+
 
     @staticmethod
     def save_new_inspection(file: UploadFile, file_id: str) -> dict:
