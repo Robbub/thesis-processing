@@ -41,18 +41,20 @@ async def analyze_session(payload: dict = Body(...)):
 
     for orig in originals:
         orig_id = orig.get("id")
-        orig_url = orig.get("url") or orig.get("storageUrl")
+        orig_url = orig.get("url") or orig.get("storageUrl") or orig.get("original_url")
 
-        resized_variants = orig.get("resized_variants", [])
-        if not resized_variants:
-            continue
-
-        if isinstance(resized_variants, list):
+        resized_variants = orig.get("resized_variants", []) or []
+        if isinstance(resized_variants, list) and resized_variants:
             variant_target = resized_variants[0]
+            resized_url = variant_target.get("url") or variant_target.get("storageUrl") or variant_target.get("original_url")
         else:
-            variant_target = resized_variants
+            resized_url = orig_url
 
-        resized_url = variant_target.get("url") or variant_target.get("storageUrl")
+        if not resized_url:
+            print(f"Skipping original {orig_id} because no source URL is available.")
+            orig["is_processed"] = False
+            analyzed_originals.append(orig)
+            continue
 
         try:
             result = InspectionRepository.process_cloud_session_images(
@@ -61,21 +63,25 @@ async def analyze_session(payload: dict = Body(...)):
                 resized_url=resized_url
             )
 
-            orig["mask_url"] = result["mask_url"]
-            orig["crack_data"] = result["crack_data"]
-            orig["is_processesd"] = True
-
+            orig["mask_url"] = result.get("mask_url")
+            orig["crack_data"] = result.get("crack_data", {"bounding_boxes": [], "contours": []})
+            orig["is_processed"] = True
         except Exception as e:
             print(f"Failed to process asset {orig_id}: {str(e)}")
             orig["is_processed"] = False
-            
+
         analyzed_originals.append(orig)
 
-    return {
+    processed_session = {
         "sessionId": session_id,
         "originals": analyzed_originals,
         "is_processed_session": True
     }
+
+    if hasattr(InspectionRepository, "save_session_metadata"):
+        InspectionRepository.save_session_metadata(processed_session)
+
+    return processed_session
 
 if __name__ == "__main__":
     import uvicorn

@@ -398,7 +398,7 @@ function InteractiveWindow({ title, inspection, onCrackSelect }) {
             draggable="false"
             style={{ display: 'block', maxWidth: '100%', height: 'auto', maxHeight: '70vh', pointerEvents: 'none', opacity: maskMode === "mask" ? 0.0 : (maskMode === "overlay" ? 0.4 : 1.0), transition: 'opacity 0.15s ease' }}
           />
-          {(maskMode === "overlay" || maskMode === "mask") && (
+          {(maskMode === "overlay" || maskMode === "mask") && inspection.mask_url && (
             <img
               src={inspection.mask_url}
               alt="Binary Crack Mask"

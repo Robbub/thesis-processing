@@ -18,6 +18,10 @@ if RENDER_URL:
 else:
     HOST_URL = "http://localhost:8000/static"
 
+MASK_API_URL = os.environ.get(
+    "DAMAGE_MASK_API_URL",
+    "https://damage-mask-service.onrender.com/process-all"
+)
 
 PIXEL_TO_MM = 0.1
 GAP_THRESHOLD_PIXELS = 5
@@ -195,7 +199,7 @@ class InspectionRepository:
     
     @staticmethod
     def process_cloud_session_images(original_id: str, original_url: str, resized_url: str) -> dict:
-        external_api_url = "https://onrender.com"
+        external_api_url = MASK_API_URL
         generated_mask_url = None
         crack_data = {"bounding_boxes": [], "contours": []}
 
@@ -265,31 +269,64 @@ class InspectionRepository:
 
             cleaned_base_name, incoming_extension = os.path.splitext(file.filename)
             orig_filename = f"original_{cleaned_base_name}{incoming_extension}"
-            mask_filename = f"mask_{cleaned_base_name}.png"
             orig_path = os.path.join(folder_path, orig_filename)
-            mask_path = os.path.join(folder_path, mask_filename)
             
             with open(orig_path, "wb") as buffer:
                 shutil.copyfileobj(file.file, buffer)
 
-            crack_data = InspectionRepository.process_and_analyze_crack(orig_path, mask_path)
-
-            meta_payload = {
-                "id": file_id,
-                "name": file.filename,
-                "original_url": f"{HOST_URL}/{file_id}/{orig_filename}",
-                "mask_url": f"{HOST_URL}/{file_id}/{mask_filename}",
-                "crack_data": crack_data
+            session_payload = {
+                "sessionId": file_id,
+                "originals": [
+                    {
+                        "id": file_id,
+                        "name": file.filename,
+                        "url": f"{HOST_URL}/{file_id}/{orig_filename}",
+                        "mask_url": None,
+                        "crack_data": {"bounding_boxes": [], "contours": []},
+                        "resized_variants": []
+                    }
+                ],
+                "is_processed_session": False
             }
 
-            with open(os.path.join(folder_path, "crack_meta.json"), "w") as json_file:
-                json.dump(meta_payload, json_file)
+            with open(os.path.join(folder_path, "session_meta.json"), "w") as json_file:
+                json.dump(session_payload, json_file)
 
-            return meta_payload
+            return session_payload
         
         elif STORAGE_MODE == "CLOUD":
-            #TODO: fetch from DAVE + KC
-            pass
+            raise NotImplementedError("CLOUD storage uploads are not implemented. Set STORAGE_MODE=LOCAL or add cloud upload support.")
+
+    @staticmethod
+    def save_cloud_inspection(image_url: str, filename: str, file_id: str) -> dict:
+        return {
+            "sessionId": file_id,
+            "originals": [
+                {
+                    "id": file_id,
+                    "name": filename,
+                    "url": image_url,
+                    "mask_url": None,
+                    "crack_data": {"bounding_boxes": [], "contours": []},
+                    "resized_variants": []
+                }
+            ],
+            "is_processed_session": False
+        }
+
+    @staticmethod
+    def save_session_metadata(session_payload: dict) -> dict:
+        if STORAGE_MODE != "LOCAL":
+            return session_payload
+
+        folder_path = os.path.join(LOCAL_STORAGE_DIR, session_payload.get("sessionId", ""))
+        os.makedirs(folder_path, exist_ok=True)
+        meta_file = os.path.join(folder_path, "session_meta.json")
+
+        with open(meta_file, "w") as f:
+            json.dump(session_payload, f)
+
+        return session_payload
 
     @staticmethod
     def get_all_inspections() -> list:
@@ -302,7 +339,9 @@ class InspectionRepository:
             for folder_name in os.listdir(LOCAL_STORAGE_DIR):
                 folder_path = os.path.join(LOCAL_STORAGE_DIR, folder_name)
                 if os.path.isdir(folder_path):
-                    meta_file = os.path.join(folder_path, "crack_meta.json")
+                    meta_file = os.path.join(folder_path, "session_meta.json")
+                    if not os.path.exists(meta_file):
+                        meta_file = os.path.join(folder_path, "crack_meta.json")
 
                     if os.path.exists(meta_file):
                         with open(meta_file, "r") as f:
