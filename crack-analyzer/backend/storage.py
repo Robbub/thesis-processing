@@ -51,7 +51,7 @@ class CrackUnionFind:
 def calculate_min_edge_distance(contour_a, contour_b):
     pts_a = contour_a.reshape(-1, 2)
     pts_b = contour_b.reshape(-1, 2)
-    dist_matrix = np.linalg.norm(pts_a[:, np.newaxis] - pts_b, axis=2)
+    dist_matrix = np.linalg.norm(pts_a[:2, np.newaxis] - pts_b, axis=2)
     return np.min(dist_matrix)
 
 class InspectionRepository:
@@ -74,12 +74,12 @@ class InspectionRepository:
             cleaned_mask, connectivity=8, ltype=cv2.CV_32S
         )
 
-        final_cleaned_mask = np.zeros_like(cleaned_mask)
-        for i in range(1, num_labels):
-            if stats_map[i, cv2.CC_STAT_AREA] >= 75:
-                final_cleaned_mask[labels == i] = 255
+        # final_cleaned_mask = np.zeros_like(cleaned_mask)
+        # for i in range(1, num_labels):
+        #     if stats_map[i, cv2.CC_STAT_AREA] >= 75:
+        #         final_cleaned_mask[labels == i] = 255
 
-        contours, _ = cv2.findContours(final_cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         crack_records = []
 
         for count in contours:
@@ -141,7 +141,7 @@ class InspectionRepository:
             total_length = sum(c["length_mm"] for c in sub_cracks)
             max_width = max(c["max_width_mm"] for c in sub_cracks)
             mean_width = np.mean(np.concatenate([c["widths_raw"] for c in sub_cracks]))
-            angles = np.array([c["orientation_deg"] for c in sub_cracks])
+            angles = np.abs(np.array([c["orientation_deg"] for c in sub_cracks]))
             lengths = np.array([c["length_mm"] for c in sub_cracks])
 
             if total_length > 0:
@@ -151,7 +151,7 @@ class InspectionRepository:
                 within_tolerance = np.abs(angles - weighted_average_angle) <= 10.0
 
                 if np.sum(within_tolerance) > (len(sub_cracks) / 2.0):
-                    final_orientation = f"{weighted_average_angle:.1f} degrees"
+                    final_orientation = f"{np.abs(weighted_average_angle):.1f} degrees"
                 else:
                     final_orientation = "Curve"
 
@@ -354,7 +354,7 @@ class InspectionRepository:
                                             len(data["crack_data"]["bounding_boxes"]) == 0)
 
                     if cloud_mask_url and has_empty_crack_data:
-                        print(f"🎉 New cloud mask discovered for asset {doc_id}! Compiling OpenCV measurements...")
+                        print(f"New cloud mask discovered for asset {doc_id}. Compiling OpenCV measurements...")
                         try:
 
                             mask_resp = requests.get(cloud_mask_url, timeout=15)
