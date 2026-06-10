@@ -43,32 +43,32 @@ export default function App() {
 
   const macroStats = computeGlobalStats();
 
-  // const handleFileUpload = async (e) => {
-  //   const file = e.target.files[0];
-  //   if (!file) return;
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  //   setLoading(true);
-  //   const formData = new FormData();
-  //   formData.append("file", file);
+    setLoading(true);
+    const formData = new FormData();
+    formData.append("file", file);
 
-  //   try {
-  //     const res = await fetch(`${import.meta.env.VITE_APP_URL}/api/upload`, {
-  //       method: "POST",
-  //       body: formData
-  //     });
-  //     const newInspectionItem = await res.json();
+    try {
+      const res = await fetch(`${import.meta.env.VITE_APP_URL}/api/upload`, {
+        method: "POST",
+        body: formData
+      });
+      const newInspectionItem = await res.json();
 
-  //     setInspections((prevList) => {
-  //       const updatedList = [...prevList, newInspectionItem];
-  //       setSelectedIdx(updatedList.length - 1);
-  //       return updatedList;
-  //     });
-  //   } catch (err) {
-  //     console.error("Error communicating with the backend", err);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
+      setInspections((prevList) => {
+        const updatedList = [...prevList, newInspectionItem];
+        setSelectedIdx(updatedList.length - 1);
+        return updatedList;
+      });
+    } catch (err) {
+      console.error("Error communicating with the backend", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleAnalyzedSession = async (session) => {
     if (!session || loading) return;
@@ -118,11 +118,11 @@ export default function App() {
         </div>
 
         <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
-          {/* <label style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#2563eb', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#2563eb', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
             <Upload size={18} />
             {loading ? 'Processing...' : 'Upload Photo'}
             <input type="file" accept="image/*" onChange={handleFileUpload} hidden disabled={loading} />
-          </label> */}
+          </label>
 
           {inspections.length > 0 && (
             <button

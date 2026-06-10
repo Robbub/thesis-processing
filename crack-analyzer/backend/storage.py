@@ -74,10 +74,10 @@ class InspectionRepository:
             cleaned_mask, connectivity=8, ltype=cv2.CV_32S
         )
 
-        # final_cleaned_mask = np.zeros_like(cleaned_mask)
-        # for i in range(1, num_labels):
-        #     if stats_map[i, cv2.CC_STAT_AREA] >= 75:
-        #         final_cleaned_mask[labels == i] = 255
+        final_cleaned_mask = np.zeros_like(cleaned_mask)
+        for i in range(1, num_labels):
+            if stats_map[i, cv2.CC_STAT_AREA] >= 75:
+                final_cleaned_mask[labels == i] = 255
 
         contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         crack_records = []
