@@ -6,11 +6,11 @@ const INITIAL_DIRECTORY = [];
 export default function App() {
   const [loading, setLoading] = useState(false);
   const [inspections, setInspections] = useState(INITIAL_DIRECTORY);
-  const [selectedIdx, setSelectedIdx] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState(null);
   const [selectedOriginalIdx, setSelectedOriginalIdx] = useState(0);
   const [isDualWindow, setIsDualWindow] = useState(false);
   const [activeCrack, setActiveCrack] = useState(null);
-  const activeSession = inspections[selectedIdx] || null;
+  const activeSession = selectedIdx !== null ? inspections[selectedIdx] : null;
   const activeInspection = activeSession?.originals?.[selectedOriginalIdx] || null;
 
   const computeGlobalStats = () => {
@@ -70,26 +70,29 @@ export default function App() {
     }
   };
 
-  const handleAnalyzedSession = async (session) => {
-    if (!session || loading) return;
+  const hasPendingSessions = inspections.some((session) => {
+    const isAnalyzed = session.is_processed_session || session.originals?.some((o) => o.mask_url);
+    return !isAnalyzed;
+  });
+
+  const handleAnalyzePendingSessions = async () => {
+    if (loading || !hasPendingSessions) return;
 
     setLoading(true);
     try {
-      const res = await fetch(`${import.meta.env.VITE_APP_URL}/api/analyze-session`, {
+      await fetch(`${import.meta.env.VITE_APP_URL}/api/analyze-session`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(session)
+        body: JSON.stringify({ runAllPending: true })
       });
 
-      const updateSessionPayload = await res.json();
-
-      setInspections((prevList) =>
-        prevList.map((item) =>
-          item.sessionId === session.sessionId ? updateSessionPayload : item
-        )
-      );
+      const res = await fetch(`${import.meta.env.VITE_APP_URL}/api/inspections`);
+      const json = await res.json();
+      if (Array.isArray(json)) {
+        setInspections(json);
+      }
     } catch (err) {
-      console.error("Error running session processing pipeline script", err);
+      console.error("Error processing pending sessions", err);
     } finally {
       setLoading(false);
     }
@@ -139,56 +142,67 @@ export default function App() {
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <aside style={{ width: '260px', borderRight: '1px solid #334155', backgroundColor: '#0f172a', padding: '15px', overflow: 'auto' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {inspections.map((session, sIdx) => {
+            {hasPendingSessions && (
+              <button
+                onClick={handleAnalyzePendingSessions}
+                disabled={loading}
+                style={{
+                  backgroundColor: '#0284c7',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  fontWeight: 'bold',
+                  cursor: loading ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {loading ? 'Processing Pending Sessions...' : 'Run CV Analysis for Pending Sessions'}
+              </button>
+            )}
+
+            {selectedIdx !== null && inspections[selectedIdx] ? (() => {
+              const session = inspections[selectedIdx];
               const isSessionAnalyzed = session.is_processed_session || session.originals?.some(o => o.mask_url);
 
               return (
-                <div key={session.sessionId || sIdx} style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <button
+                    onClick={() => setSelectedIdx(null)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '6px', backgroundColor: 'transparent',
+                      border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.8rem', padding: '4px 0',
+                      fontWeight: 'bold', textAlign: 'left'
+                    }}
+                  >
+                    Back to Sessions
+                  </button>
 
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', color: '#64748b', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                      <Folder size={14} />
-                      <span>SESSION: {session.sessionId}</span>
+                  <div style={{ borderBottom: '1px solid #1e293b', paddingBottom: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f8fac', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                      <Folder size={16} color="#3b82f6" />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        SESSION: {session.sessionId}
+                      </span>
                     </div>
-                    <span
-                      title={isSessionAnalyzed ? "Processed" : "Pending Analysis"}
-                      style={{ fontSize: '0.6rem', color: isSessionAnalyzed ? '#10b981' : '#f59e0b' }}
-                    >
+                    <div style={{ fontSize: '0.65rem', color: isSessionAnalyzed ? '#10b981' : 'f59e0b', marginTop: '4px', fontWeight: 'bold' }}>
                       {isSessionAnalyzed ? '● PROCESSED' : '○ PENDING'}
-                    </span>
+                    </div>
                   </div>
 
-                  {!isSessionAnalyzed && (
-                    <button
-                      onClick={() => handleAnalyzedSession(session)}
-                      disabled={loading}
-                      style={{
-                        backgroundColor: '#0284c7', color: '#fff', border: 'none', borderRadius: '4px',
-                        padding: '5px 8px', fontSize: '0.7rem', fontWeight: 'bold', cursor: loading ? 'not-allowed' : 'pointer',
-                        transition: 'background-color 0.2s', width: '100%', marginBottom: '4px'
-                      }}
-                    >
-                      {loading ? 'Processing Workspace...' : 'Run CV Analysis'}
-                    </button>
-                  )}
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingLeft: '12px', borderLeft: '1px solid #1e293b' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     {session.originals?.map((orig, oIdx) => {
-                      const isSelected = selectedIdx === sIdx && selectedOriginalIdx === oIdx;
+                      const isSelected = selectedOriginalIdx == oIdx;
                       return (
                         <button
                           key={orig.id}
-                          onClick={() => {
-                            setSelectedIdx(sIdx);
-                            setSelectedOriginalIdx(oIdx);
-                          }}
+                          onClick={() => setSelectedOriginalIdx(oIdx)}
                           style={{
-                            width: '100%', padding: '8px 10px', borderRadius: '6px', border: 'none', textAlign: 'left', cursor: 'pointer',
+                            width: '100%', padding: '10px', borderRadius: '6px', border: 'none', textAlign: 'left', cursor: 'pointer',
                             backgroundColor: isSelected ? '#2563eb' : '#1e293b',
                             color: '#fff', transition: 'background-color 0.15s', fontSize: '0.8rem'
                           }}
                         >
-                          <div style={{ fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontWeight: isSelected ? 'bold' : '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {orig.name || `Image #${orig.id.slice(0, 5)}`}
                           </div>
                         </button>
@@ -197,7 +211,42 @@ export default function App() {
                   </div>
                 </div>
               );
-            })}
+            })() : (
+              inspections.map((session, sIdx) => {
+                const isSessionAnalyzed = session.is_processed_session || session.originals?.some(o => o.mask_url);
+
+                return (
+                  <button
+                    key={session.sessionId || sIdx}
+                    onClick={() => {
+                      setSelectedIdx(sIdx);
+                      setSelectedOriginalIdx(0);
+                    }}
+                    style={{
+                      display: 'flex', flexDirection: 'column', width: '100%', padding: '12px',
+                      backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '6px',
+                      textAlign: 'left', cursor: 'pointer', color: '#fff', transition: 'transform 0.1s, background-color 0.15s'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#273549'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#1e293b'}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+                      <Folder size={16} color="#94a3b8" />
+                      <span style={{ fontWeight: '600', fontSize: '0.85rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                        {session.sessionId}
+                      </span>
+                      <span style={{ fontSize: '0.6rem', color: isSessionAnalyzed ? '#10b981' : '#f59e0b' }}>
+                        {isSessionAnalyzed ? '●' : '○'}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: '4px', paddingLeft: '24px' }}>
+                      {session.originals?.length || 0} image asset{session.originals?.length === 1 ? '' : 's'} enclosed
+                    </div>
+                  </button>
+                );
+              })
+            )}
           </div>
         </aside>
 
@@ -211,8 +260,9 @@ export default function App() {
                   id: activeInspection.id,
                   original_url: activeInspection.url,
                   mask_url: activeInspection.mask_url,
-                  crack_data: activeInspection.crack_data || { bounding_boxes: [], contours: [] }
+                  assessment: activeInspection.assessment || activeInspection.crack_data || { bounding_boxes: [], contours: [] }
                 }}
+                activeCrack={activeCrack}
                 onCrackSelect={setActiveCrack}
               />
               {isDualWindow && (
@@ -223,8 +273,9 @@ export default function App() {
                     id: activeInspection.id,
                     original_url: activeInspection.url,
                     mask_url: activeInspection.mask_url,
-                    crack_data: activeInspection.crack_data || { bounding_boxes: [], contours: [] }
+                    assessment: activeInspection.assessment || activeInspection.crack_data || { bounding_boxes: [], contours: [] }
                   }}
+                  activeCrack={activeCrack}
                   onCrackSelect={setActiveCrack}
                 />
               )}
@@ -288,7 +339,7 @@ export default function App() {
   );
 }
 
-function InteractiveWindow({ title, inspection, onCrackSelect }) {
+function InteractiveWindow({ title, inspection, activeCrack, onCrackSelect }) {
   const [maskMode, setMaskMode] = useState("photo");
   const [showBoxes, setShowBoxes] = useState(true);
   const [showContours, setShowContours] = useState(true);
@@ -416,30 +467,42 @@ function InteractiveWindow({ title, inspection, onCrackSelect }) {
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
             >
-              {showContours && inspection.crack_data.contours.map(c => (
-                <path
-                  key={c.id}
-                  d={c.path}
-                  fill="none"
-                  stroke="#38bdf8"
-                  strokeWidth="1.2"
-                  strokeLinecap="round"
-                />
-              ))}
-              {showBoxes && inspection.crack_data?.bounding_boxes?.map(b => (
-                <rect
-                  key={b.id}
-                  x={b.x}
-                  y={b.y}
-                  width={b.width}
-                  height={b.height}
-                  fill="rgba(239, 68, 68, 0.1)"
-                  stroke="#ef4444"
-                  strokeWidth="0.8"
-                  style={{ cursor: 'pointer', pointerEvents: 'auto' }}
-                  onClick={(e) => { e.stopPropagation(); onCrackSelect(b); }}
-                />
-              ))}
+              {showContours && inspection.assessment?.contours?.map(c => {
+                const isLineHighlighted = activeCrack && activeCrack.id === c.parent_box_id;
+
+                return (
+                  <path
+                    key={c.id}
+                    d={c.path}
+                    fill="none"
+                    stroke={isLineHighlighted ? "#10b981" : "#38bdf8"}
+                    strokeWidth={isLineHighlighted ? "2.0" : "1.2"}
+                    strokeLinecap="round"
+                    style={{ trainsition: 'stroke 0.15s, stroke-width 0.15s' }}
+                  />
+                );
+              })}
+              {showBoxes && inspection.crack_data?.bounding_boxes?.map(b => {
+                const isBoxSelected = activeCrack && activeCrack.id === b.id;
+
+                return (
+                  <rect
+                    key={b.id}
+                    x={b.x}
+                    y={b.y}
+                    width={b.width}
+                    height={b.height}
+                    fill={isBoxSelected ? "rgba(16, 185, 129, 0.15)" : "rgba(239, 68, 68, 0.04)"}
+                    stroke={isBoxSelected ? "#10b981" : "#ef4444"}
+                    strokeWidth={isBoxSelected ? "1.4" : "0.8"}
+                    style={{ cursor: 'pointer', pointerEvents: 'auto', transition: 'all 0.15s' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onCrackSelect(isBoxSelected ? null : b);
+                    }}
+                  />
+                );
+              })}
             </svg>
           )}
           <div style={{ position: 'absolute', bottom: '8px', right: '12px', fontSize: '0.7rem', color: '#64748b', background: '#090d16cc', padding: '2px 6px', borderRadius: '4px', zIndex: 5 }}>

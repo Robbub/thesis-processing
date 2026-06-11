@@ -79,7 +79,7 @@ class InspectionRepository:
             if stats_map[i, cv2.CC_STAT_AREA] >= 75:
                 final_cleaned_mask[labels == i] = 255
 
-        contours, _ = cv2.findContours(cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        contours, _ = cv2.findContours(final_cleaned_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
         crack_records = []
 
         for count in contours:
@@ -101,7 +101,8 @@ class InspectionRepository:
             widths_mm = dist_map[skeleton == 255] * 2.0 * PIXEL_TO_MM
             max_w = np.max(widths_mm)
             mean_w = np.mean(widths_mm)
-            mode_w = float(stats.mode(np.round(widths_mm, 2), keepdims=True).mode[0])
+            mode_result = stats.mode(np.round(widths_mm, 2), keepdims=True).mode
+            mode_w = float(mode_result.item() if hasattr(mode_result, "item") else mode_result)
             rotated_box = cv2.minAreaRect(count)
             orientation_angle = float(rotated_box[2])
 
@@ -136,18 +137,23 @@ class InspectionRepository:
         final_boxes = []
         final_contours = []
 
+        running_total_length = 0.0
+        running_all_widths = []
+
         for chain_id, indices in enumerate(clusters.values()):
             sub_cracks = [crack_records[idx] for idx in indices]
             total_length = sum(c["length_mm"] for c in sub_cracks)
             max_width = max(c["max_width_mm"] for c in sub_cracks)
+            concatenated_widths = np.concatenate([c["widths_raw"] for c in sub_cracks])
             mean_width = np.mean(np.concatenate([c["widths_raw"] for c in sub_cracks]))
+            running_total_length += total_length
+            running_all_widths.append(concatenated_widths)
             angles = np.abs(np.array([c["orientation_deg"] for c in sub_cracks]))
             lengths = np.array([c["length_mm"] for c in sub_cracks])
 
             if total_length > 0:
                 percentage_weights = lengths / total_length
                 weighted_average_angle = np.sum(angles * percentage_weights)
-
                 within_tolerance = np.abs(angles - weighted_average_angle) <= 10.0
 
                 if np.sum(within_tolerance) > (len(sub_cracks) / 2.0):
@@ -165,6 +171,8 @@ class InspectionRepository:
             pct_y = float((by / target_h) * 100.0)
             pct_w = float((bw / target_w) * 100.0)
             pct_h = float((bh / target_h) * 100.0)
+
+            current_box_id = int(chain_id + 1)
 
             final_boxes.append({
                 "id": int(chain_id + 1),
@@ -190,10 +198,19 @@ class InspectionRepository:
 
                 final_contours.append({
                     "id": f"cont_{chain_id}_{c_idx}",
+                    "parent_box_id": current_box_id,
                     "path": path_str.strip()
                 })
 
+        overall_max_width = max([box.get("maxWidth").split()[0] for box in final_boxes]) if final_boxes else "0.00"
+        macro_stats = {
+            "total_length_mm": round(running_total_length, 2),
+            "average_width_mm": round(float(np.mean(np.concatenate(running_all_widths))), 2) if running_all_widths else 0.0,
+            "max_width_mm": round(float(overall_max_width), 2)
+        }
+
         return {
+            "macro_stats": macro_stats,
             "bounding_boxes": final_boxes,
             "contours": final_contours
         }
